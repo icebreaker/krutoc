@@ -1,0 +1,157 @@
+#!/bin/bash
+
+VERSION='0.1 alpha'
+
+function info()
+{
+	echo "$(basename $0) v$VERSION, Copyright (c) 2013, Mihail Szabolcs"
+}
+
+function help()
+{
+	echo "Usage: $(basename $0) [OPTIONS] command [command options ...]"
+	echo -e "\nGeneral Options:"
+#	echo -e "-join     n\tauto join resulting audio-video files on exit (default: 0)"
+	echo -e "-thread   n\tset number of threads (default: 0 - auto)"
+	echo -e "\nVideo Options:"
+	echo -e "-vfile   s\tset video filename (default: $(basename $0)_%Y_%m_%d_%H%M%S.mp4)"
+	echo -e "-fps     n\tset frames per second (default: 30)"
+	echo -e "-width   n\tset screen width (required)"
+	echo -e "-height  n\tset screen height (required)"
+	echo -e "-vcodec  s\tset video codec (default: libx264)"
+	echo -e "-preset  s\tset video codec preset (default: ultrafast)"
+	echo -e "-crf     n\tset video codec crf (default: 24)"
+	echo -e "-pix_fmt s\tset video codec pixel format (default: yuv444p)"
+	echo -e "-vf      s\tset video filter (default: vflip)"
+	echo -e "-pbo     n\tenable or disable OpenGL PBO (default: 1 - enabled)"
+	echo -e "\nAudio Options:"
+	echo -e "-hw     s\tset audio hardware (e.g: hw:0)"
+	echo -e "-afile  s\tset audio filename (default: $(basename $0)_%Y_%m_%d_%H%M%S.aac)"
+	echo -e "-acodec s\tset audio codec (default: libvo_aacenc)"
+	echo -e "-ab     n\tset audio bitrate (default: 96k)"
+}
+
+function strtoupper()
+{
+	echo "$1" | tr "[:lower:]" "[:upper:]"
+}
+
+function str_replace()
+{
+	echo "$1" | tr "$2" "$3"
+}
+
+function strip()
+{
+	echo "$1" | cut -d'-' -f2
+}
+
+info
+
+VIDEO_FFMPEG="ffmpeg -f rawvideo -pix_fmt bgra -r %d -s %sx%s -i - -threads %d -vcodec %s -preset %s -y -crf %d -pix_fmt %s%s%s"
+AUDIO_FFMPEG="ffmpeg -f alsa -ac 2 -i %s -threads %d -acodec %s -ab %s %s"
+
+JOIN=0
+THREADS=0
+
+FPS=30
+WIDTH=1280
+HEIGHT=720
+VCODEC="libx264"
+PRESET="ultrafast"
+CRF=23
+VF="vflip"
+PIX_FMT="yuv444p"
+VFILE=$(date -d "today" +"capture_%Y_%m_%d_%H%M%S.mp4")
+PBO=1
+
+HW=""
+ACODEC="libvo_aacenc"
+AB="96k"
+AFILE=$(date -d "today" +"capture_%Y_%m_%d_%H%M%S.aac")
+
+if [ $# -lt 1 ]; then
+	help
+	exit 1
+fi
+
+while [[ "$1" == -* ]]; do
+	# FIXME: add whitelist of arguments
+	KEY=$(strtoupper $(strip "$1"))
+	shift
+
+	if [ $# -eq 0 ]; then
+		break
+	else
+		VALUE=$1
+		shift
+	fi
+
+	eval "$KEY='$VALUE'"
+done
+
+if [ $# -lt 1 ]; then
+	help
+	exit 1
+fi
+
+if [[ "$WIDTH" -le 0 || "$HEIGHT" -le 0 ]]; then
+	help
+	exit 1
+fi
+
+if [ $(uname -m) == "x86_64" ]; then
+	EXEC=$1
+	EXEC_BASENAME=$(basename "$EXEC")
+	if [[ "$EXEC_BASENAME" == "optirun" || "$EXEC_BASENAME" == "primusrun" ]]; then
+		if [ $# -lt 2 ]; then
+			help
+			exit 1
+		fi
+
+		EXEC=$2
+	fi
+
+	EXEC=$(which "$EXEC")
+	if [[ "$EXEC" == "" ]]; then
+		exit 1
+	fi
+
+	if [ $(file -L -b $EXEC | cut -d' ' -f2) == "64-bit" ]; then
+		LIB_ARCH=64
+	else
+		LIB_ARCH=32
+	fi
+else
+	LIB_ARCH=32
+fi
+
+if [[ "$VF" != "" && "$VF" != "none" ]]; then
+	VF=" -vf $VF "
+else
+	VF=" "
+fi
+
+export KR_VIDEO=$(printf "$VIDEO_FFMPEG" "$FPS" "$WIDTH" "$HEIGHT" "$THREADS" "$VCODEC" "$PRESET" "$CRF" "$PIX_FMT" "$VF" "$VFILE")
+export KR_VIDEO_WIDTH="$WIDTH"
+export KR_VIDEO_HEIGHT="$HEIGHT"
+export KR_VIDEO_PBO="$PBO"
+
+if [[ "$HW" != "" ]]; then
+	export KR_AUDIO=$(printf "$AUDIO_FFMPEG" "$HW" "$THREADS" "$ACODEC" "$AB" "$AFILE")
+else
+	unset KR_AUDIO
+fi
+
+if [[ "$KR_DEBUG" == "1" ]]; then
+	echo "Debug : yes"
+	echo "Video : $KR_VIDEO"
+	echo "Width : $KR_VIDEO_WIDTH"
+	echo "Height: $KR_VIDEO_HEIGHT"
+	echo "PBO   : $KR_VIDEO_PBO"
+	echo "Audio : $KR_AUDIO"
+fi
+
+LD_PRELOAD=$(dirname $0)/libkrutoc$LIB_ARCH.so $@
+
+# TODO: (ask) auto-combine the resulted audio+video into a single file (if no, then list a recommended command)

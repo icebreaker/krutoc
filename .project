@@ -1,0 +1,10 @@
+build:
+	make
+
+clean:
+	make clean
+
+execute:
+	cd build; ./krutoc glxgears -geometry 1280x720
+
+.PHONY: build clean execute
