@@ -1,2 +1,3 @@
 -DKR_DEBUG
--Isrc
+-Isrc/lib/video
+-Isrc/lib/audio
